@@ -1,7 +1,8 @@
-# Rust
-/target
-**/*.rs.bk
-*.pdb
+# Go
+/docforge
+/docforge.exe
+/bin/
+coverage.out
 
 # Editor / OS
 .vscode/
@@ -14,4 +15,4 @@ Thumbs.db
 .env.local
 
 # DocForge output
-/docs
+/dist/
