@@ -1,0 +1,124 @@
+package build
+
+import (
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/gabbzin/docforge/internal/render"
+)
+
+// Run generates a site from Markdown. Source and output must be disjoint.
+func Run(source, output string) (int, error) {
+	if source == "" || output == "" {
+		return 0, fmt.Errorf("source and output must not be empty")
+	}
+
+	source, err := resolvePath(source)
+	if err != nil {
+		return 0, err
+	}
+
+	info, err := os.Stat(source)
+	if err != nil {
+		return 0, fmt.Errorf("read source: %w", err)
+	}
+
+	if !info.IsDir() {
+		return 0, fmt.Errorf("source must be a directory")
+	}
+
+	output, err = resolvePath(output)
+	if err != nil {
+		return 0, err
+	}
+
+	if contains(source, output) || contains(output, source) {
+		return 0, fmt.Errorf("source and output directories must not overlap")
+	}
+
+	pages, err := readPages(source)
+	if err != nil {
+		return 0, fmt.Errorf("scan source: %w", err)
+	}
+
+	if len(pages) == 0 {
+		return 0, fmt.Errorf("no Markdown files found in %s", source)
+	}
+
+	if err := render.Site(output, pages); err != nil {
+		return 0, fmt.Errorf("render site: %w", err)
+	}
+
+	return len(pages), nil
+}
+
+func readPages(source string) ([]render.Page, error) {
+	var pages []render.Page
+
+	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || filepath.Ext(path) != ".md" {
+			return nil
+		}
+
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+
+		name := strings.TrimSuffix(relative, ".md")
+		pages = append(pages, render.Page{
+			Title:    filepath.ToSlash(name),
+			Path:     name + ".html",
+			Markdown: content,
+		})
+
+		return nil
+	})
+
+	return pages, err
+}
+
+func contains(parent, child string) bool {
+	relative, err := filepath.Rel(parent, child)
+	if err != nil || relative == ".." {
+		return false
+	}
+
+	return !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+}
+
+// Resolve existing ancestors so symlinks cannot bypass the overlap check.
+func resolvePath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err == nil {
+		return resolved, nil
+	}
+
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+
+	parent, err := resolvePath(filepath.Dir(absolute))
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(parent, filepath.Base(absolute)), nil
+}

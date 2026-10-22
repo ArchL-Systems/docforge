@@ -70,9 +70,44 @@ Um exemplo de `DOCS.md`:
 
 ## Stack
 
-Escrito em [Rust](https://www.rust-lang.org/).
+Escrito em [Go](https://go.dev/), com Goldmark para Markdown e
+`html/template` + `embed` para gerar páginas com os assets incluídos no executável.
 
-## Uso planejado
+## Desenvolvimento
+
+Pré-requisito: Go 1.26 ou superior.
+
+```bash
+go mod download
+go test ./...
+go build -o bin/docforge ./cmd/docforge
+go run ./cmd/docforge --help
+```
+
+Qualidade de código: `golangci-lint fmt` e `golangci-lint run ./...`.
+Veja [CONTRIBUTING.md](CONTRIBUTING.md) para instalar a versão usada na CI.
+
+## Uso atual
+
+```bash
+go run ./cmd/docforge build --source docs --output dist
+```
+
+Abra `dist/index.html` no navegador para ver a documentação de exemplo.
+Os arquivos `.md` são encontrados recursivamente e convertidos em `.html`,
+preservando os diretórios. Cada página inclui navegação para as demais.
+Para ter uma página inicial, inclua `index.md` na origem.
+
+Origem e destino precisam ser diretórios separados, sem sobreposição.
+Links simbólicos na origem são ignorados. O build sobrescreve páginas de mesmo
+nome na saída, mas ainda não remove páginas antigas. Nesta primeira versão,
+imagens e outros assets da origem não são copiados e links Markdown `.md`
+não são reescritos; use a navegação gerada para transitar entre páginas.
+
+O parser de `DOCS.md`, análise de TypeScript, busca, IA e o servidor de
+desenvolvimento ainda fazem parte do roadmap.
+
+## Uso planejado (ainda não disponível)
 
 ```bash
 npx docforge init   # cria as configurações iniciais

@@ -1,0 +1,49 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+body {
+  display: flex;
+  gap: 3rem;
+  max-width: 76rem;
+  margin: 2rem auto;
+  padding: 0 1.5rem;
+}
+
+nav {
+  min-width: 12rem;
+}
+
+nav ul {
+  list-style: none;
+  padding: 0;
+}
+
+main {
+  min-width: 0;
+  flex: 1;
+}
+
+a {
+  color: light-dark(#1757ae, #8cbdff);
+}
+
+pre {
+  overflow-x: auto;
+  padding: 1rem;
+  background: light-dark(#f2f4f7, #22262c);
+  border-radius: .5rem;
+}
+
+img {
+  max-width: 100%;
+}
+
+@media (max-width: 640px) {
+  body {
+    flex-direction: column;
+    gap: 1rem;
+  }
+}
