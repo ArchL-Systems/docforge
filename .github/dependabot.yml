@@ -3,6 +3,8 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     base-branch: development
+    reviewers:
+      - "PedrFelip"
     schedule:
       interval: weekly
     groups:
@@ -11,6 +13,8 @@ updates:
   - package-ecosystem: gomod
     directory: /
     base-branch: development
+    reviewers:
+      - "PedrFelip"
     schedule:
       interval: weekly
     groups:
