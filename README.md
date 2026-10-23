@@ -100,9 +100,11 @@ Para ter uma página inicial, inclua `index.md` na origem.
 
 Origem e destino precisam ser diretórios separados, sem sobreposição.
 Links simbólicos na origem são ignorados. O build sobrescreve páginas de mesmo
-nome na saída, mas ainda não remove páginas antigas. Nesta primeira versão,
-imagens e outros assets da origem não são copiados e links Markdown `.md`
-não são reescritos; use a navegação gerada para transitar entre páginas.
+nome na saída, mas ainda não remove páginas antigas. Links Markdown relativos
+a páginas conhecidas são reescritos para `.html` (mantendo âncoras); links
+externos e para arquivos desconhecidos permanecem como estão. Nesta primeira
+versão, imagens e outros assets da origem ainda não são copiados — use a
+navegação gerada para transitar entre páginas.
 
 O parser de `DOCS.md`, análise de TypeScript, busca, IA e o servidor de
 desenvolvimento ainda fazem parte do roadmap.
