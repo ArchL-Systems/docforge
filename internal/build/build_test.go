@@ -62,6 +62,121 @@ func TestRunGeneratesSite(t *testing.T) {
 	}
 }
 
+func TestRunRemovesStaleOutputFiles(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "docs")
+	output := filepath.Join(root, "dist")
+	if err := os.MkdirAll(filepath.Join(source, "images"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(source, "index.md"), []byte("# Welcome"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(source, "images", "logo.png"), []byte("PNG"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(output, "old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(output, "old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(output, "images"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, stale := range []string{"old-page.html", filepath.Join("old", "x.txt"), filepath.Join("images", "ghost.png")} {
+		if err := os.WriteFile(filepath.Join(output, stale), []byte("stale"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := Run(source, output); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, stale := range []string{"old-page.html", "old", filepath.Join("images", "ghost.png")} {
+		if _, err := os.Stat(filepath.Join(output, stale)); !os.IsNotExist(err) {
+			t.Errorf("stale file %s must be removed: %v", stale, err)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(output, "index.html")); err != nil {
+		t.Errorf("generated page missing: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(output, "images", "logo.png")); err != nil {
+		t.Errorf("copied asset missing: %v", err)
+	}
+}
+
+func TestRunCopiesAssetsAndIgnoresSymlinks(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "docs")
+	output := filepath.Join(root, "dist")
+	if err := os.MkdirAll(filepath.Join(source, "images"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	for path, text := range map[string]string{
+		"index.md":         "# Welcome",
+		"styles.css":       "body { margin: 0 }",
+		"images/logo.png":  "PNG bytes",
+		"images/half.jpeg": "JPEG bytes",
+	} {
+		if err := os.WriteFile(filepath.Join(source, path), []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := os.Symlink(filepath.Join(root, "styles.css"), filepath.Join(source, "shortcut.css")); err != nil {
+		t.Fatal(err)
+	}
+
+	count, err := Run(source, output)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if count != 1 {
+		t.Fatalf("got %d pages, want 1", count)
+	}
+
+	for _, path := range []string{"styles.css", "images/logo.png", "images/half.jpeg"} {
+		want, err := os.ReadFile(filepath.Join(source, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got, err := os.ReadFile(filepath.Join(output, path))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if string(got) != string(want) {
+			t.Errorf("asset %s has content %q, want %q", path, got, want)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(output, "shortcut.css")); !os.IsNotExist(err) {
+		t.Errorf("symlinked asset must not be copied: %v", err)
+	}
+
+	page, err := os.ReadFile(filepath.Join(output, "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(page), "Welcome") {
+		t.Errorf("generated page missing: %s", page)
+	}
+}
+
 func TestRunRejectsInvalidDirectories(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "docs")

@@ -1,0 +1,102 @@
+name: Release
+
+on:
+  push:
+    branches: [development]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-development
+  cancel-in-progress: false
+
+# One release train at a time, with a single long-lived train branch
+# (release/current). Every dev push force-updates it and reuses the
+# open PR, so unpackaged trains do not pile up PRs.
+jobs:
+  release:
+    name: development → main
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes against main
+        id: changes
+        run: |
+          if git diff --quiet origin/main origin/development --; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Update train branch (release/current)
+        if: steps.changes.outputs.skip != 'true'
+        id: branch
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+        run: |
+          git push --force origin "origin/development:refs/heads/release/current"
+          echo "branch=release/current" >> "$GITHUB_OUTPUT"
+
+      - name: Open (or reuse) release PR
+        if: steps.changes.outputs.skip != 'true'
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          BRANCH_NAME: ${{ steps.branch.outputs.branch }}
+        run: |
+          PR=$(gh pr create \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --title "chore: release development into main" \
+            --body "Automated release train: squash-merges \`$BRANCH_NAME\` (development) into main after checks pass." \
+          ) || {
+            PR=$(gh pr list --base main --head "$BRANCH_NAME" --state open --limit 1 --json number -q '.[0].number')
+          }
+
+          if [ -z "$PR" ]; then
+            echo "::error::could not create or find the release PR for $BRANCH_NAME"
+            exit 1
+          fi
+
+          echo "number=$PR" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for required checks
+        if: steps.changes.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          PR_NUM: ${{ steps.pr.outputs.number }}
+        run: |
+          # CI needs a moment to register the fresh PR's checks.
+          for _ in $(seq 1 30); do
+            if gh pr checks "$PR_NUM" --required >/tmp/checks.out 2>&1 || grep -q "no checks reported" /tmp/checks.out; then
+              break
+            fi
+            sleep 10
+          done
+
+          gh pr checks "$PR_NUM" --watch --required --interval 30
+
+      - name: Squash merge into main
+        if: steps.changes.outputs.skip != 'true' && env.RELEASE_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
+          PR_NUM: ${{ steps.pr.outputs.number }}
+        run: gh pr merge "$PR_NUM" --squash --delete-branch
+
+      - name: Warn about missing RELEASE_TOKEN
+        if: steps.changes.outputs.skip != 'true' && env.RELEASE_TOKEN == ''
+        env:
+          PR_NUM: ${{ steps.pr.outputs.number }}
+        run: |
+          echo "::warning::RELEASE_TOKEN not configured — PR #$PR_NUM was left open awaiting a manual merge with bypass."
+          echo "Create a fine-grained PAT (contents:RW, pull-requests:RW only for this repository) and run:"
+          echo "  gh secret set RELEASE_TOKEN -R ArchL-Systems/docforge"

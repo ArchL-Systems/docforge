@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/gabbzin/docforge/internal/cli"
+	"github.com/ArchL-Systems/docforge/internal/cli"
 )
 
 func main() {

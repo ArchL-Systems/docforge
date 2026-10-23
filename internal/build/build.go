@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gabbzin/docforge/internal/render"
+	"github.com/ArchL-Systems/docforge/internal/render"
 )
 
 // Run generates a site from Markdown. Source and output must be disjoint.
@@ -48,11 +48,59 @@ func Run(source, output string) (int, error) {
 		return 0, fmt.Errorf("no Markdown files found in %s", source)
 	}
 
+	// The output directory is disjoint from the source (checked above), so
+	// DocForge owns it: stale files from previous builds go away.
+	if err := os.RemoveAll(output); err != nil {
+		return 0, fmt.Errorf("clean output: %w", err)
+	}
+
+	// Assets go first so pages rendered afterwards win any name collision.
+	if err := copyAssets(source, output); err != nil {
+		return 0, fmt.Errorf("copy assets: %w", err)
+	}
+
 	if err := render.Site(output, pages); err != nil {
 		return 0, fmt.Errorf("render site: %w", err)
 	}
 
 	return len(pages), nil
+}
+
+// copyAssets copies non-Markdown regular files so pages can reference
+// images, styles and other resources by their source-relative path.
+// Symlinks are ignored, mirroring the page scanner.
+func copyAssets(source, output string) error {
+	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || filepath.Ext(path) == ".md" {
+			return nil
+		}
+
+		relative, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+
+		destination := filepath.Join(output, relative)
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			return err
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+
+		return os.WriteFile(destination, data, info.Mode().Perm())
+	})
 }
 
 func readPages(source string) ([]render.Page, error) {

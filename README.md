@@ -98,11 +98,13 @@ Os arquivos `.md` são encontrados recursivamente e convertidos em `.html`,
 preservando os diretórios. Cada página inclui navegação para as demais.
 Para ter uma página inicial, inclua `index.md` na origem.
 
-Origem e destino precisam ser diretórios separados, sem sobreposição.
-Links simbólicos na origem são ignorados. O build sobrescreve páginas de mesmo
-nome na saída, mas ainda não remove páginas antigas. Nesta primeira versão,
-imagens e outros assets da origem não são copiados e links Markdown `.md`
-não são reescritos; use a navegação gerada para transitar entre páginas.
+Origem e destino precisam ser diretórios separados, sem sobreposição — o
+build limpa o diretório de saída antes de gerar, então ele que gerencia o
+conteúdo do destino. Links simbólicos na origem são ignorados. Links Markdown
+relativos a páginas conhecidas são reescritos para `.html` (mantendo âncoras);
+links externos e para arquivos desconhecidos permanecem como estão. Arquivos
+que não são Markdown (imagens, CSS e afins) são copiados para a saída
+preservando a estrutura de pastas.
 
 O parser de `DOCS.md`, análise de TypeScript, busca, IA e o servidor de
 desenvolvimento ainda fazem parte do roadmap.

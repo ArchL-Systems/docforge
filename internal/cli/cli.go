@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/gabbzin/docforge/internal/build"
+	"github.com/ArchL-Systems/docforge/internal/build"
 )
 
 func Run(args []string, stdout, stderr io.Writer) error {
