@@ -61,8 +61,16 @@ jobs:
             --base main \
             --head "$BRANCH_NAME" \
             --title "chore: release development@$BRANCH_NAME" \
-            --body "Automated release train: squash-merges \`$BRANCH_NAME\` (development) into main after checks pass." 2>/dev/null ||
-          gh pr list --base main --head "$BRANCH_NAME" --limit 1 --json number -q '.[0].number')
+            --body "Automated release train: squash-merges \`$BRANCH_NAME\` (development) into main after checks pass."
+          ) || {
+            PR=$(gh pr list --base main --head "$BRANCH_NAME" --limit 1 --json number -q '.[0].number')
+          }
+
+          if [ -z "$PR" ]; then
+            echo "::error::could not create or find the release PR for $BRANCH_NAME"
+            exit 1
+          fi
+
           echo "number=$PR" >> "$GITHUB_OUTPUT"
 
       - name: Wait for release PR checks
@@ -71,7 +79,14 @@ jobs:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           PR_NUM: ${{ steps.pr.outputs.number }}
         run: |
-          sleep 15
+          # CI needs a moment to register the fresh PR's checks.
+          for _ in $(seq 1 30); do
+            if gh pr checks "$PR_NUM" >/tmp/checks.out 2>&1 || grep -q "no checks reported" /tmp/checks.out; then
+              break
+            fi
+            sleep 10
+          done
+
           gh pr checks "$PR_NUM" --watch --interval 30
 
       - name: Squash merge into main
