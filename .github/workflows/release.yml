@@ -90,7 +90,20 @@ jobs:
         env:
           GH_TOKEN: ${{ env.RELEASE_TOKEN }}
           PR_NUM: ${{ steps.pr.outputs.number }}
-        run: gh pr merge "$PR_NUM" --squash --delete-branch
+          BRANCH_NAME: ${{ steps.branch.outputs.branch }}
+        run: |
+          # REST API honors the ruleset bypass actors; the GraphQL merge (gh pr
+          # merge) does not and fails with "base branch policy prohibits".
+          gh api -X PUT "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUM}/merge" \
+            -f merge_method=squash \
+            -f commit_title="chore: release development into main" \
+            -f commit_message="Squash-merges \`${BRANCH_NAME}\` (development) into main. See the release PR for the full commit list."
+
+      - name: Delete train branch after merge
+        if: steps.changes.outputs.skip != 'true' && env.RELEASE_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
+        run: git push --delete origin release/current || true
 
       - name: Warn about missing RELEASE_TOKEN
         if: steps.changes.outputs.skip != 'true' && env.RELEASE_TOKEN == ''
