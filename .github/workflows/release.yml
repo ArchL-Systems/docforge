@@ -13,6 +13,9 @@ concurrency:
   group: release-development
   cancel-in-progress: false
 
+# One release train at a time, with a single long-lived train branch
+# (release/current). Every dev push force-updates it and reuses the
+# open PR, so unpackaged trains do not pile up PRs.
 jobs:
   release:
     name: development → main
@@ -34,21 +37,14 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create release branch
+      - name: Update train branch (release/current)
         if: steps.changes.outputs.skip != 'true'
         id: branch
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
         run: |
-          SHORT="$(git rev-parse --short origin/development)"
-          BRANCH="release/$SHORT"
-          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
-            echo "branch $BRANCH already exists"
-          else
-            git branch "$BRANCH" origin/development
-            git push origin "$BRANCH"
-          fi
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          git push --force origin "origin/development:refs/heads/release/current"
+          echo "branch=release/current" >> "$GITHUB_OUTPUT"
 
       - name: Open (or reuse) release PR
         if: steps.changes.outputs.skip != 'true'
@@ -60,10 +56,10 @@ jobs:
           PR=$(gh pr create \
             --base main \
             --head "$BRANCH_NAME" \
-            --title "chore: release development@$BRANCH_NAME" \
-            --body "Automated release train: squash-merges \`$BRANCH_NAME\` (development) into main after checks pass."
+            --title "chore: release development into main" \
+            --body "Automated release train: squash-merges \`$BRANCH_NAME\` (development) into main after checks pass." \
           ) || {
-            PR=$(gh pr list --base main --head "$BRANCH_NAME" --limit 1 --json number -q '.[0].number')
+            PR=$(gh pr list --base main --head "$BRANCH_NAME" --state open --limit 1 --json number -q '.[0].number')
           }
 
           if [ -z "$PR" ]; then
@@ -73,7 +69,7 @@ jobs:
 
           echo "number=$PR" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for release PR checks
+      - name: Wait for required checks
         if: steps.changes.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
@@ -81,7 +77,7 @@ jobs:
         run: |
           # CI needs a moment to register the fresh PR's checks.
           for _ in $(seq 1 30); do
-            if gh pr checks "$PR_NUM" >/tmp/checks.out 2>&1 || grep -q "no checks reported" /tmp/checks.out; then
+            if gh pr checks "$PR_NUM" --required >/tmp/checks.out 2>&1 || grep -q "no checks reported" /tmp/checks.out; then
               break
             fi
             sleep 10
