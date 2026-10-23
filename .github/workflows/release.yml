@@ -52,7 +52,7 @@ jobs:
         if: steps.changes.outputs.skip != 'true'
         id: pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           BRANCH_NAME: ${{ steps.branch.outputs.branch }}
         run: |
           PR=$(gh pr create \
@@ -66,15 +66,24 @@ jobs:
       - name: Wait for release PR checks
         if: steps.changes.outputs.skip != 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
           PR_NUM: ${{ steps.pr.outputs.number }}
         run: |
           sleep 15
           gh pr checks "$PR_NUM" --watch --interval 30
 
       - name: Squash merge into main
-        if: steps.changes.outputs.skip != 'true'
+        if: steps.changes.outputs.skip != 'true' && secrets.RELEASE_TOKEN != ''
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           PR_NUM: ${{ steps.pr.outputs.number }}
         run: gh pr merge "$PR_NUM" --squash --delete-branch
+
+      - name: Warn about missing RELEASE_TOKEN
+        if: steps.changes.outputs.skip != 'true' && secrets.RELEASE_TOKEN == ''
+        env:
+          PR_NUM: ${{ steps.pr.outputs.number }}
+        run: |
+          echo "::warning::RELEASE_TOKEN not configured — PR #$PR_NUM was left open awaiting a manual merge with bypass."
+          echo "Create a fine-grained PAT (contents:RW, pull-requests:RW only for this repository) and run:"
+          echo "  gh secret set RELEASE_TOKEN -R ArchL-Systems/docforge"
