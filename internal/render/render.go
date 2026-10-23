@@ -123,7 +123,9 @@ type mdLinkRewriter struct {
 }
 
 func (r *mdLinkRewriter) Transform(node *ast.Document, _ text.Reader, _ parser.Context) {
-	ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+	// The walker function always returns nil, so the error is impossible;
+	// the explicit assignment documents that and satisfies errcheck.
+	_ = ast.Walk(node, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
