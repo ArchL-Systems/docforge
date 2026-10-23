@@ -48,6 +48,12 @@ func Run(source, output string) (int, error) {
 		return 0, fmt.Errorf("no Markdown files found in %s", source)
 	}
 
+	// The output directory is disjoint from the source (checked above), so
+	// DocForge owns it: stale files from previous builds go away.
+	if err := os.RemoveAll(output); err != nil {
+		return 0, fmt.Errorf("clean output: %w", err)
+	}
+
 	// Assets go first so pages rendered afterwards win any name collision.
 	if err := copyAssets(source, output); err != nil {
 		return 0, fmt.Errorf("copy assets: %w", err)
