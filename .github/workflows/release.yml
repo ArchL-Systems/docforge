@@ -18,6 +18,8 @@ jobs:
     name: development → main
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -73,14 +75,14 @@ jobs:
           gh pr checks "$PR_NUM" --watch --interval 30
 
       - name: Squash merge into main
-        if: steps.changes.outputs.skip != 'true' && secrets.RELEASE_TOKEN != ''
+        if: steps.changes.outputs.skip != 'true' && env.RELEASE_TOKEN != ''
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ env.RELEASE_TOKEN }}
           PR_NUM: ${{ steps.pr.outputs.number }}
         run: gh pr merge "$PR_NUM" --squash --delete-branch
 
       - name: Warn about missing RELEASE_TOKEN
-        if: steps.changes.outputs.skip != 'true' && secrets.RELEASE_TOKEN == ''
+        if: steps.changes.outputs.skip != 'true' && env.RELEASE_TOKEN == ''
         env:
           PR_NUM: ${{ steps.pr.outputs.number }}
         run: |
