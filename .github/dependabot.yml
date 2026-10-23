@@ -2,7 +2,7 @@ version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
-    base-branch: development
+    target-branch: development
     reviewers:
       - "PedrFelip"
     schedule:
@@ -12,7 +12,7 @@ updates:
         patterns: ["*"]
   - package-ecosystem: gomod
     directory: /
-    base-branch: development
+    target-branch: development
     reviewers:
       - "PedrFelip"
     schedule:
