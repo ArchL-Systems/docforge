@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gabbzin/docforge/internal/render"
+	"github.com/ArchL-Systems/docforge/internal/render"
 )
 
 // Run generates a site from Markdown. Source and output must be disjoint.

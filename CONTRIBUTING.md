@@ -15,7 +15,7 @@ Pré-requisitos:
 - [golangci-lint](https://golangci-lint.run/docs/welcome/install/local/) v2.15.0 (mesma versão da CI)
 
 ```bash
-git clone https://github.com/gabbzin/docforge.git
+git clone https://github.com/ArchL-Systems/docforge.git
 cd docforge
 go mod download
 go build ./cmd/docforge
