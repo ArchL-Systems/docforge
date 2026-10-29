@@ -90,24 +90,27 @@ Veja [CONTRIBUTING.md](CONTRIBUTING.md) para instalar a versão usada na CI.
 ## Uso atual
 
 ```bash
-go run ./cmd/docforge build --source docs --output dist
+go run ./cmd/docforge build --output dist
 ```
 
-Abra `dist/index.html` no navegador para ver a documentação de exemplo.
-Os arquivos `.md` são encontrados recursivamente e convertidos em `.html`,
-preservando os diretórios. Cada página inclui navegação para as demais.
-Para ter uma página inicial, inclua `index.md` na origem.
+O comando roda na raiz do projeto e lê o `DOCS.md` dela: `## Folders` lista as
+pastas (na ordem da documentação) e `## Assemble` o modo de montagem. Hoje só
+o modo `page` está disponível; `module` e `single` respondem que ainda não
+existem. Sem `DOCS.md`, são lidos apenas os `.md` diretos da raiz.
 
-Origem e destino precisam ser diretórios separados, sem sobreposição — o
-build limpa o diretório de saída antes de gerar, então ele que gerencia o
-conteúdo do destino. Links simbólicos na origem são ignorados. Links Markdown
-relativos a páginas conhecidas são reescritos para `.html` (mantendo âncoras);
-links externos e para arquivos desconhecidos permanecem como estão. Arquivos
-que não são Markdown (imagens, CSS e afins) são copiados para a saída
-preservando a estrutura de pastas.
+Abra `dist/docs/index.html` no navegador para ver a documentação de exemplo.
+Os arquivos `.md` das pastas listadas (e subpastas) viram `.html`, preservando
+os diretórios relativos à raiz. Cada página inclui navegação para as demais.
 
-O parser de `DOCS.md`, análise de TypeScript, busca, IA e o servidor de
-desenvolvimento ainda fazem parte do roadmap.
+A saída não pode sobrepor as pastas lidas — o build limpa o diretório de saída
+antes de gerar, então ele que gerencia o conteúdo do destino. Links simbólicos
+são ignorados. Links Markdown relativos a páginas conhecidas são reescritos
+para `.html` (mantendo âncoras); links externos e para arquivos desconhecidos
+permanecem como estão. Arquivos que não são Markdown (imagens, CSS e afins)
+são copiados para a saída preservando a estrutura de pastas.
+
+Análise de TypeScript, busca, IA e o servidor de desenvolvimento ainda fazem
+parte do roadmap.
 
 ## Uso planejado (ainda não disponível)
 

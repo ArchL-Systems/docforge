@@ -67,4 +67,4 @@ jobs:
       - name: Build CLI
         run: go build -trimpath ./cmd/docforge
       - name: Smoke test
-        run: go run ./cmd/docforge build --source docs --output dist
+        run: go run ./cmd/docforge build --output dist

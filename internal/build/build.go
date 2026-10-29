@@ -7,27 +7,30 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ArchL-Systems/docforge/internal/collect"
+	"github.com/ArchL-Systems/docforge/internal/config"
 	"github.com/ArchL-Systems/docforge/internal/render"
 )
 
-// Run generates a site from Markdown. Source and output must be disjoint.
-func Run(source, output string) (int, error) {
-	if source == "" || output == "" {
-		return 0, fmt.Errorf("source and output must not be empty")
+// Run generates a site from the Markdown folders listed in root's DOCS.md.
+// The output must not overlap any of those folders.
+func Run(root, output string) (int, error) {
+	if root == "" || output == "" {
+		return 0, fmt.Errorf("root and output must not be empty")
 	}
 
-	source, err := resolvePath(source)
+	root, err := resolvePath(root)
 	if err != nil {
 		return 0, err
 	}
 
-	info, err := os.Stat(source)
+	info, err := os.Stat(root)
 	if err != nil {
-		return 0, fmt.Errorf("read source: %w", err)
+		return 0, fmt.Errorf("read root: %w", err)
 	}
 
 	if !info.IsDir() {
-		return 0, fmt.Errorf("source must be a directory")
+		return 0, fmt.Errorf("root must be a directory")
 	}
 
 	output, err = resolvePath(output)
@@ -35,27 +38,51 @@ func Run(source, output string) (int, error) {
 		return 0, err
 	}
 
-	if contains(source, output) || contains(output, source) {
-		return 0, fmt.Errorf("source and output directories must not overlap")
-	}
-
-	pages, err := readPages(source)
+	cfg, err := config.Load(root)
 	if err != nil {
-		return 0, fmt.Errorf("scan source: %w", err)
+		return 0, err
 	}
 
-	if len(pages) == 0 {
-		return 0, fmt.Errorf("no Markdown files found in %s", source)
+	if cfg.Mode != config.ModePage {
+		return 0, fmt.Errorf("assemble mode %q is not available yet", cfg.Mode)
 	}
 
-	// The output directory is disjoint from the source (checked above), so
+	for _, folder := range cfg.Folders {
+		folderPath := filepath.Join(root, filepath.FromSlash(folder))
+		// A flat root reads only its direct files, so an output inside
+		// it is safe; the output may still never contain the root.
+		overlaps := contains(folderPath, output) || contains(output, folderPath)
+		if cfg.Flat {
+			overlaps = contains(output, folderPath)
+		}
+
+		if overlaps {
+			return 0, fmt.Errorf("output directory must not overlap folder %q", folder)
+		}
+	}
+
+	files, err := collect.Files(root, cfg)
+	if err != nil {
+		return 0, fmt.Errorf("scan root: %w", err)
+	}
+
+	if len(files) == 0 {
+		return 0, fmt.Errorf("no Markdown files found in %s", root)
+	}
+
+	pages, err := readPages(root, files)
+	if err != nil {
+		return 0, fmt.Errorf("read pages: %w", err)
+	}
+
+	// The output directory is disjoint from the folders (checked above), so
 	// DocForge owns it: stale files from previous builds go away.
 	if err := os.RemoveAll(output); err != nil {
 		return 0, fmt.Errorf("clean output: %w", err)
 	}
 
 	// Assets go first so pages rendered afterwards win any name collision.
-	if err := copyAssets(source, output); err != nil {
+	if err := copyAssets(root, cfg, output); err != nil {
 		return 0, fmt.Errorf("copy assets: %w", err)
 	}
 
@@ -66,76 +93,73 @@ func Run(source, output string) (int, error) {
 	return len(pages), nil
 }
 
-// copyAssets copies non-Markdown regular files so pages can reference
-// images, styles and other resources by their source-relative path.
-// Symlinks are ignored, mirroring the page scanner.
-func copyAssets(source, output string) error {
-	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
+// copyAssets copies non-Markdown regular files from the configured folders so
+// pages can reference images, styles and other resources by their
+// root-relative path. Symlinks are ignored, mirroring the collector.
+func copyAssets(root string, cfg config.Config, output string) error {
+	for _, folder := range cfg.Folders {
+		base := filepath.Join(root, filepath.FromSlash(folder))
+		err := filepath.WalkDir(base, func(path string, entry fs.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
 
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || filepath.Ext(path) == ".md" {
-			return nil
-		}
+			if entry.IsDir() && cfg.Flat && path != base {
+				return filepath.SkipDir
+			}
 
-		relative, err := filepath.Rel(source, path)
+			if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || filepath.Ext(path) == ".md" {
+				return nil
+			}
+
+			relative, err := filepath.Rel(root, path)
+			if err != nil {
+				return err
+			}
+
+			destination := filepath.Join(output, relative)
+			if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+				return err
+			}
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+
+			return os.WriteFile(destination, data, info.Mode().Perm())
+		})
 		if err != nil {
 			return err
 		}
+	}
 
-		destination := filepath.Join(output, relative)
-		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-			return err
-		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-
-		return os.WriteFile(destination, data, info.Mode().Perm())
-	})
+	return nil
 }
 
-func readPages(source string) ([]render.Page, error) {
-	var pages []render.Page
+func readPages(root string, files []collect.File) ([]render.Page, error) {
+	pages := make([]render.Page, 0, len(files))
 
-	err := filepath.WalkDir(source, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-
-		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || filepath.Ext(path) != ".md" {
-			return nil
-		}
-
-		content, err := os.ReadFile(path)
+	for _, file := range files {
+		content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Source)))
 		if err != nil {
-			return err
+			return nil, err
 		}
 
-		relative, err := filepath.Rel(source, path)
-		if err != nil {
-			return err
-		}
-
-		name := strings.TrimSuffix(relative, ".md")
+		name := strings.TrimSuffix(file.Source, ".md")
 		pages = append(pages, render.Page{
-			Title:    filepath.ToSlash(name),
-			Path:     name + ".html",
+			Title:    name,
+			Path:     filepath.FromSlash(name) + ".html",
 			Markdown: content,
 		})
+	}
 
-		return nil
-	})
-
-	return pages, err
+	return pages, nil
 }
 
 func contains(parent, child string) bool {
