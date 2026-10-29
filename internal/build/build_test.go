@@ -83,7 +83,7 @@ func TestRunRemovesStaleOutputFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(source, "index.md"), []byte("# Welcome"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "index.md"), []byte("# Welcome\n\n![logo](images/logo.png)"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -128,63 +128,73 @@ func TestRunRemovesStaleOutputFiles(t *testing.T) {
 	}
 }
 
-func TestRunCopiesAssetsAndIgnoresSymlinks(t *testing.T) {
-	root, source, output := project(t)
-	if err := os.MkdirAll(filepath.Join(source, "images"), 0o755); err != nil {
+func TestRunCopiesOnlyCitedImages(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{
+		"DOCS.md":                "## Folders\n- docs\n",
+		"docs/index.md":          "# Welcome\n\n![logo](images/logo.png) ![half](images/half.JPEG?raw=1)\n\n![web](https://example.com/x.png)",
+		"docs/images/logo.png":   "PNG bytes",
+		"docs/images/half.JPEG":  "JPEG bytes",
+		"docs/images/unused.png": "unused",
+		"docs/main.go":           "package docs",
+		"docs/schema.sql":        "select 1;",
+		"docs/styles.css":        "body { margin: 0 }",
+	})
+
+	output := filepath.Join(root, "dist")
+	if _, err := Run(root, output); err != nil {
 		t.Fatal(err)
 	}
 
-	for path, text := range map[string]string{
-		"index.md":         "# Welcome",
-		"styles.css":       "body { margin: 0 }",
-		"images/logo.png":  "PNG bytes",
-		"images/half.jpeg": "JPEG bytes",
-	} {
-		if err := os.WriteFile(filepath.Join(source, path), []byte(text), 0o644); err != nil {
-			t.Fatal(err)
+	for _, path := range []string{"docs/images/logo.png", "docs/images/half.JPEG"} {
+		if got, want := read(t, filepath.Join(output, path)), read(t, filepath.Join(root, path)); got != want {
+			t.Errorf("image %s has content %q, want %q", path, got, want)
 		}
 	}
 
-	if err := os.Symlink(filepath.Join(root, "styles.css"), filepath.Join(source, "shortcut.css")); err != nil {
+	for _, path := range []string{"docs/images/unused.png", "docs/main.go", "docs/schema.sql", "docs/styles.css"} {
+		if _, err := os.Stat(filepath.Join(output, path)); !os.IsNotExist(err) {
+			t.Errorf("%s must not be copied: %v", path, err)
+		}
+	}
+
+	if page := read(t, filepath.Join(output, "docs", "index.html")); !strings.Contains(page, `src="images/logo.png"`) {
+		t.Errorf("relative image path changed:\n%s", page)
+	}
+}
+
+func TestRunFailsOnMissingCitedImage(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{
+		"DOCS.md":       "## Folders\n- docs\n",
+		"docs/index.md": "![gone](images/gone.png)",
+	})
+
+	_, err := Run(root, filepath.Join(root, "dist"))
+	if err == nil || !strings.Contains(err.Error(), "docs/images/gone.png") {
+		t.Fatalf("error = %v, want it to cite the missing path", err)
+	}
+}
+
+func TestRunKeepsImagesResolvingInJoinedDocuments(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{
+		"DOCS.md":              "## Folders\n- billing\n\n## Assemble\nmodule\n",
+		"billing/api.md":       "# API\n\n![flow](img/flow.svg)",
+		"billing/img/flow.svg": "<svg/>",
+	})
+
+	output := filepath.Join(root, "dist")
+	if _, err := Run(root, output); err != nil {
 		t.Fatal(err)
 	}
 
-	count, err := Run(root, output)
-	if err != nil {
-		t.Fatal(err)
+	if page := read(t, filepath.Join(output, "billing.html")); !strings.Contains(page, `src="billing/img/flow.svg"`) {
+		t.Errorf("image path not rebased:\n%s", page)
 	}
 
-	if count != 1 {
-		t.Fatalf("got %d pages, want 1", count)
-	}
-
-	for _, path := range []string{"docs/styles.css", "docs/images/logo.png", "docs/images/half.jpeg"} {
-		want, err := os.ReadFile(filepath.Join(root, path))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		got, err := os.ReadFile(filepath.Join(output, path))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		if string(got) != string(want) {
-			t.Errorf("asset %s has content %q, want %q", path, got, want)
-		}
-	}
-
-	if _, err := os.Stat(filepath.Join(output, "docs", "shortcut.css")); !os.IsNotExist(err) {
-		t.Errorf("symlinked asset must not be copied: %v", err)
-	}
-
-	page, err := os.ReadFile(filepath.Join(output, "docs", "index.html"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !strings.Contains(string(page), "Welcome") {
-		t.Errorf("generated page missing: %s", page)
+	if _, err := os.Stat(filepath.Join(output, "billing", "img", "flow.svg")); err != nil {
+		t.Errorf("image missing from output: %v", err)
 	}
 }
 

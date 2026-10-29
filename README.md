@@ -108,8 +108,10 @@ A saída não pode sobrepor as pastas lidas — o build limpa o diretório de sa
 antes de gerar, então ele que gerencia o conteúdo do destino. Links simbólicos
 são ignorados. Links Markdown relativos a páginas conhecidas são reescritos
 para `.html` (mantendo âncoras); links externos e para arquivos desconhecidos
-permanecem como estão. Arquivos que não são Markdown (imagens, CSS e afins)
-são copiados para a saída preservando a estrutura de pastas.
+permanecem como estão. Só as imagens citadas no Markdown incluído (`png`,
+`jpg`, `jpeg`, `gif`, `svg` e `webp`) são copiadas para a saída, preservando a
+estrutura de pastas; imagem citada e ausente falha o build. Código e outros
+arquivos ao lado do Markdown ficam de fora.
 
 Análise de TypeScript, busca, IA e o servidor de desenvolvimento ainda fazem
 parte do roadmap.

@@ -303,6 +303,22 @@ func pageURL(current, target string) (string, error) {
 	return pageURL.String(), nil
 }
 
+// Images returns the destination of every image cited in a Markdown file.
+func Images(markdown []byte) []string {
+	root := goldmark.New().Parser().Parse(text.NewReader(markdown))
+
+	var images []string
+	_ = ast.Walk(root, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if image, ok := n.(*ast.Image); ok && entering {
+			images = append(images, string(image.Destination))
+		}
+
+		return ast.WalkContinue, nil
+	})
+
+	return images
+}
+
 // target is where an included Markdown file ends up: its output document and,
 // in joined documents, the id of its section.
 type target struct {
@@ -331,17 +347,36 @@ func (r *mdLinkRewriter) Transform(node *ast.Document, _ text.Reader, _ parser.C
 			return ast.WalkContinue, nil
 		}
 
-		if l, ok := n.(*ast.Link); ok {
-			l.Destination = r.rewritten(l.Destination)
+		switch node := n.(type) {
+		case *ast.Link:
+			node.Destination = r.rewritten(node.Destination)
+		case *ast.Image:
+			node.Destination = r.rebased(node.Destination)
 		}
 
 		return ast.WalkContinue, nil
 	})
 }
 
+// rebased points an image of a joined document at its root-relative location,
+// since the document lives in a different directory than the cited file.
+func (r *mdLinkRewriter) rebased(destination []byte) []byte {
+	raw := string(destination)
+	if !r.combined || raw == "" || IsAbsoluteURL(raw) {
+		return destination
+	}
+
+	relative, err := filepath.Rel(path.Dir(filepath.ToSlash(r.current)), path.Join(r.dir, raw))
+	if err != nil {
+		return destination
+	}
+
+	return []byte(filepath.ToSlash(relative))
+}
+
 func (r *mdLinkRewriter) rewritten(destination []byte) []byte {
 	raw := string(destination)
-	if raw == "" || absoluteURL(raw) {
+	if raw == "" || IsAbsoluteURL(raw) {
 		return destination
 	}
 
@@ -380,9 +415,9 @@ func (r *mdLinkRewriter) rewritten(destination []byte) []byte {
 	return []byte(u + "#" + anchor)
 }
 
-// absoluteURL reports destinations that must never be rewritten: full URLs,
+// IsAbsoluteURL reports destinations that must never be rewritten: full URLs,
 // protocol-relative ones, in-page fragments and paths rooted at the site root.
-func absoluteURL(destination string) bool {
+func IsAbsoluteURL(destination string) bool {
 	return strings.HasPrefix(destination, "http://") ||
 		strings.HasPrefix(destination, "https://") ||
 		strings.HasPrefix(destination, "mailto:") ||
