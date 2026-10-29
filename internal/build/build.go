@@ -2,8 +2,9 @@ package build
 
 import (
 	"fmt"
-	"io/fs"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -78,7 +79,7 @@ func Run(root, output string) (int, error) {
 	}
 
 	// Assets go first so pages rendered afterwards win any name collision.
-	if err := copyAssets(root, cfg, output); err != nil {
+	if err := copyAssets(root, pages, output); err != nil {
 		return 0, fmt.Errorf("copy assets: %w", err)
 	}
 
@@ -89,53 +90,83 @@ func Run(root, output string) (int, error) {
 	return len(pages), nil
 }
 
-// copyAssets copies non-Markdown regular files from the configured folders so
-// pages can reference images, styles and other resources by their
-// root-relative path. Symlinks are ignored, mirroring the collector.
-func copyAssets(root string, cfg config.Config, output string) error {
-	for _, folder := range cfg.Folders {
-		base := filepath.Join(root, filepath.FromSlash(folder))
-		err := filepath.WalkDir(base, func(path string, entry fs.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
+// imageExtensions are the only asset types copied to the output.
+var imageExtensions = map[string]bool{
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".webp": true,
+}
+
+// copyAssets copies the images cited by the included Markdown, keeping their
+// root-relative paths. Cited images that are missing fail the build.
+func copyAssets(root string, pages []render.Page, output string) error {
+	copied := make(map[string]bool)
+
+	for _, page := range pages {
+		for _, reference := range render.Images(page.Markdown) {
+			relative, ok := imagePath(page.Source, reference)
+			if !ok || copied[relative] {
+				continue
 			}
 
-			if entry.IsDir() && cfg.Flat && path != base {
-				return filepath.SkipDir
-			}
+			copied[relative] = true
 
-			if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || filepath.Ext(path) == ".md" {
-				return nil
+			if err := copyImage(root, relative, output); err != nil {
+				return fmt.Errorf("%s: image %q: %w", page.Source, reference, err)
 			}
-
-			relative, err := filepath.Rel(root, path)
-			if err != nil {
-				return err
-			}
-
-			destination := filepath.Join(output, relative)
-			if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
-				return err
-			}
-
-			data, err := os.ReadFile(path)
-			if err != nil {
-				return err
-			}
-
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-
-			return os.WriteFile(destination, data, info.Mode().Perm())
-		})
-		if err != nil {
-			return err
 		}
 	}
 
 	return nil
+}
+
+// imagePath resolves an image reference against the Markdown file citing it.
+// It reports false for URLs, root-absolute paths and unsupported extensions.
+func imagePath(source, reference string) (string, bool) {
+	if render.IsAbsoluteURL(reference) {
+		return "", false
+	}
+
+	reference, _, _ = strings.Cut(reference, "#")
+	reference, _, _ = strings.Cut(reference, "?")
+
+	decoded, err := url.PathUnescape(reference)
+	if err != nil {
+		decoded = reference
+	}
+
+	if !imageExtensions[strings.ToLower(path.Ext(decoded))] {
+		return "", false
+	}
+
+	return path.Join(path.Dir(source), decoded), true
+}
+
+func copyImage(root, relative, output string) error {
+	if relative == ".." || strings.HasPrefix(relative, "../") {
+		return fmt.Errorf("%s is outside the project root", relative)
+	}
+
+	source := filepath.Join(root, filepath.FromSlash(relative))
+
+	info, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("%s not found", relative)
+	}
+
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", relative)
+	}
+
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+
+	destination := filepath.Join(output, filepath.FromSlash(relative))
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		return err
+	}
+
+	return os.WriteFile(destination, data, info.Mode().Perm())
 }
 
 func readPages(root string, files []collect.File) ([]render.Page, error) {
