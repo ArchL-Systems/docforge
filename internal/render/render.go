@@ -36,16 +36,72 @@ type Page struct {
 	Module string
 }
 
+var indexTemplate = template.Must(template.New("index").Parse(`<h1>DocForge</h1>
+{{range .}}<section>
+{{if .Name}}<h2>{{if .URL}}<a href="{{.URL}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</h2>
+{{end}}<ul>
+{{range .Links}}<li><a href="{{.URL}}">{{.Title}}</a> <code>{{.Source}}</code></li>
+{{end}}</ul>
+</section>
+{{end}}`))
+
 type link struct {
-	Title string
-	URL   string
+	Title   string
+	URL     string
+	Source  string
+	Current bool
+}
+
+// navGroup is one module in the navigation. URL is set when the module is a
+// chapter of its own, and Current marks the group holding the open page.
+type navGroup struct {
+	Name    string
+	URL     string
+	Current bool
+	Links   []link
 }
 
 type pageData struct {
 	Title   string
 	Content template.HTML
 	Style   template.CSS
-	Links   []link
+	Groups  []navGroup
+	Home    string
+	Source  string
+}
+
+// Title returns the text of the first heading of a Markdown file, or "" when
+// it has none.
+func Title(markdown []byte) string {
+	root := goldmark.New().Parser().Parse(text.NewReader(markdown))
+
+	var title string
+	_ = ast.Walk(root, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if _, ok := n.(*ast.Heading); ok && entering {
+			title = strings.TrimSpace(plainText(n, markdown))
+			return ast.WalkStop, nil
+		}
+
+		return ast.WalkContinue, nil
+	})
+
+	return title
+}
+
+func plainText(n ast.Node, source []byte) string {
+	var b strings.Builder
+	for child := n.FirstChild(); child != nil; child = child.NextSibling() {
+		switch c := child.(type) {
+		case *ast.Text:
+			b.Write(c.Segment.Value(source))
+		case *ast.String:
+			b.Write(c.Value)
+		default:
+			b.WriteString(plainText(child, source))
+		}
+	}
+
+	return b.String()
 }
 
 // Assemble writes the site using the given assemble mode: one HTML per file
@@ -80,17 +136,19 @@ func Site(output string, pages []Page) error {
 			return err
 		}
 
-		links, err := navigationLinks(page.Path, pages)
+		groups, err := pageGroups(page.Path, pages)
 		if err != nil {
 			return err
 		}
 
-		if err := writeDocument(output, page.Path, page.Title, content, links); err != nil {
+		if err := writeDocument(output, page.Path, page.Title, page.Source, content, groups); err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return writeIndex(output, hasPath(pages, indexPath), func() ([]navGroup, error) {
+		return pageGroups(indexPath, pages)
+	})
 }
 
 // document is one generated HTML file made of one or more included files.
@@ -104,7 +162,7 @@ func assembleDocuments(output string, pages []Page, mode string) error {
 	byPath := make(map[string]*document)
 
 	for _, page := range pages {
-		docPath, title := "index.html", "Documentation"
+		docPath, title := indexPath, "Documentation"
 		if mode == config.ModeModule {
 			docPath, title = moduleDocument(page.Module)
 		}
@@ -128,11 +186,6 @@ func assembleDocuments(output string, pages []Page, mode string) error {
 		}
 	}
 
-	navigation := make([]Page, 0, len(documents))
-	for _, doc := range documents {
-		navigation = append(navigation, doc.Page)
-	}
-
 	for _, doc := range documents {
 		var content bytes.Buffer
 		for _, page := range doc.sources {
@@ -147,20 +200,55 @@ func assembleDocuments(output string, pages []Page, mode string) error {
 				return err
 			}
 
-			fmt.Fprintf(&content, "<section id=%q>\n%s</section>\n", anchor, html)
+			fmt.Fprintf(&content, "<section id=%q>\n<p class=\"source\">%s</p>\n%s</section>\n",
+				anchor, template.HTMLEscapeString(page.Source), html)
 		}
 
-		links, err := navigationLinks(doc.Path, navigation)
+		groups, err := chapterGroups(doc.Path, documents, targets)
 		if err != nil {
 			return err
 		}
 
-		if err := writeDocument(output, doc.Path, doc.Title, content.String(), links); err != nil {
+		if err := writeDocument(output, doc.Path, doc.Title, "", content.String(), groups); err != nil {
 			return err
 		}
 	}
 
-	return nil
+	return writeIndex(output, byPath[indexPath] != nil, func() ([]navGroup, error) {
+		return chapterGroups(indexPath, documents, targets)
+	})
+}
+
+const indexPath = "index.html"
+
+func hasPath(pages []Page, docPath string) bool {
+	for _, page := range pages {
+		if filepath.ToSlash(page.Path) == docPath {
+			return true
+		}
+	}
+
+	return false
+}
+
+// writeIndex generates index.html listing every module and page unless the
+// documentation already provides one.
+func writeIndex(output string, exists bool, groups func() ([]navGroup, error)) error {
+	if exists {
+		return nil
+	}
+
+	navigation, err := groups()
+	if err != nil {
+		return err
+	}
+
+	var content bytes.Buffer
+	if err := indexTemplate.Execute(&content, navigation); err != nil {
+		return err
+	}
+
+	return writeDocument(output, indexPath, "Início", "", content.String(), navigation)
 }
 
 // moduleDocument names the chapter file for a configured folder.
@@ -191,8 +279,13 @@ func convert(markdown []byte, rewriter *mdLinkRewriter, ids parser.IDs) (string,
 	return content.String(), nil
 }
 
-func writeDocument(output, docPath, title, content string, links []link) error {
+func writeDocument(output, docPath, title, source, content string, groups []navGroup) error {
 	style, err := assets.ReadFile("assets/style.css")
+	if err != nil {
+		return err
+	}
+
+	home, err := pageURL(docPath, indexPath)
 	if err != nil {
 		return err
 	}
@@ -201,7 +294,9 @@ func writeDocument(output, docPath, title, content string, links []link) error {
 		Title:   title,
 		Content: template.HTML(content),
 		Style:   template.CSS(style),
-		Links:   links,
+		Groups:  groups,
+		Home:    home,
+		Source:  source,
 	}
 
 	var document bytes.Buffer
@@ -275,22 +370,66 @@ func (p *prefixedIDs) Put(value []byte) {
 	p.used[string(value)]++
 }
 
-func navigationLinks(currentPath string, pages []Page) ([]link, error) {
-	links := make([]link, 0, len(pages))
+// pageGroups lists every page grouped by module, in order, linking each one
+// relative to the page being rendered.
+func pageGroups(current string, pages []Page) ([]navGroup, error) {
+	var groups []navGroup
+	index := make(map[string]int)
 
 	for _, page := range pages {
-		u, err := pageURL(currentPath, page.Path)
+		u, err := pageURL(current, page.Path)
 		if err != nil {
 			return nil, err
 		}
 
-		links = append(links, link{
-			Title: page.Title,
-			URL:   u,
-		})
+		i, ok := index[page.Module]
+		if !ok {
+			i = len(groups)
+			index[page.Module] = i
+			groups = append(groups, navGroup{Name: moduleName(page.Module)})
+		}
+
+		isCurrent := filepath.ToSlash(page.Path) == filepath.ToSlash(current)
+		groups[i].Current = groups[i].Current || isCurrent
+		groups[i].Links = append(groups[i].Links, link{Title: page.Title, URL: u, Source: page.Source, Current: isCurrent})
 	}
 
-	return links, nil
+	return groups, nil
+}
+
+// chapterGroups lists the joined documents, each linking to the sections of
+// the files it holds.
+func chapterGroups(current string, documents []*document, targets map[string]target) ([]navGroup, error) {
+	groups := make([]navGroup, 0, len(documents))
+
+	for _, doc := range documents {
+		u, err := pageURL(current, doc.Path)
+		if err != nil {
+			return nil, err
+		}
+
+		group := navGroup{Name: moduleName(doc.Title), URL: u, Current: doc.Path == filepath.ToSlash(current)}
+		for _, page := range doc.sources {
+			href := u + "#" + targets[page.Source].anchor
+			if group.Current {
+				href = "#" + targets[page.Source].anchor
+			}
+
+			group.Links = append(group.Links, link{Title: page.Title, URL: href, Source: page.Source})
+		}
+
+		groups = append(groups, group)
+	}
+
+	return groups, nil
+}
+
+func moduleName(module string) string {
+	if module == "." {
+		return "Raiz"
+	}
+
+	return module
 }
 
 func pageURL(current, target string) (string, error) {

@@ -147,9 +147,14 @@ func readPages(root string, files []collect.File) ([]render.Page, error) {
 			return nil, err
 		}
 
+		title := render.Title(content)
+		if title == "" {
+			title = file.Source
+		}
+
 		name := strings.TrimSuffix(file.Source, ".md")
 		pages = append(pages, render.Page{
-			Title:    name,
+			Title:    title,
 			Path:     filepath.FromSlash(name) + ".html",
 			Markdown: content,
 			Source:   file.Source,
