@@ -8,13 +8,21 @@
 </head>
 <body>
   <nav aria-label="Documentação">
-    <strong>DocForge</strong>
-    <ul>
-      {{range .Links}}
-      <li><a href="{{.URL}}">{{.Title}}</a></li>
-      {{end}}
-    </ul>
+    <strong><a href="{{.Home}}">DocForge</a></strong>
+    {{range .Groups}}
+    <section>
+      {{if .Name}}<h2>{{if .URL}}<a href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{.Name}}</a>{{else}}{{.Name}}{{end}}</h2>{{end}}
+      <ul>
+        {{range .Links}}
+        <li><a href="{{.URL}}"{{if .Current}} aria-current="page"{{end}}>{{.Title}}</a></li>
+        {{end}}
+      </ul>
+    </section>
+    {{end}}
   </nav>
-  <main>{{.Content}}</main>
+  <main>
+    {{if .Source}}<p class="source">{{.Source}}</p>{{end}}
+    {{.Content}}
+  </main>
 </body>
 </html>

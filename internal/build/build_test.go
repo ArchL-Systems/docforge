@@ -359,3 +359,92 @@ func TestRunWithoutConfigReadsOnlyRootFiles(t *testing.T) {
 		t.Errorf("root page missing: %v", err)
 	}
 }
+
+func TestRunGeneratesViewer(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{
+		"DOCS.md":          "## Folders\n- orders\n- billing\n",
+		"orders/flow.md":   "# Order *flow*\n\nBody",
+		"billing/plain.md": "No heading here",
+	})
+
+	output := filepath.Join(root, "dist")
+	if _, err := Run(root, output); err != nil {
+		t.Fatal(err)
+	}
+
+	index := read(t, filepath.Join(output, "index.html"))
+	for _, want := range []string{
+		`<a href="orders/flow.html">Order flow</a>`,
+		`<a href="billing/plain.html">billing/plain.md</a>`,
+		`<code>orders/flow.md</code>`,
+	} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q:\n%s", want, index)
+		}
+	}
+
+	if strings.Index(index, "orders/flow.html") > strings.Index(index, "billing/plain.html") {
+		t.Error("index not in config order")
+	}
+
+	page := read(t, filepath.Join(output, "orders", "flow.html"))
+	for _, want := range []string{
+		`<title>Order flow · DocForge</title>`,
+		`<h2>orders</h2>`,
+		`<h2>billing</h2>`,
+		`<a href="flow.html" aria-current="page">Order flow</a>`,
+		`<p class="source">orders/flow.md</p>`,
+		`href="../index.html"`,
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("flow.html missing %q:\n%s", want, page)
+		}
+	}
+
+	if strings.Count(page, `aria-current="page"`) != 1 {
+		t.Errorf("only the current page must be marked:\n%s", page)
+	}
+}
+
+func TestRunViewerKeepsProvidedIndex(t *testing.T) {
+	_, source, output := project(t)
+	root := filepath.Dir(source)
+	write(t, root, map[string]string{"DOCS.md": "## Folders\n- .\n", "index.md": "# Mine"})
+
+	// Folder "." is walked recursively, so keep the output out of the root.
+	output = filepath.Join(t.TempDir(), "dist")
+	if _, err := Run(root, output); err != nil {
+		t.Fatal(err)
+	}
+
+	if index := read(t, filepath.Join(output, "index.html")); !strings.Contains(index, "<h1>Mine</h1>") {
+		t.Errorf("provided index.md replaced:\n%s", index)
+	}
+}
+
+func TestRunViewerInModuleMode(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{
+		"DOCS.md":      "## Folders\n- billing\n\n## Assemble\nmodule\n",
+		"billing/a.md": "# Alpha",
+		"billing/b.md": "# Beta",
+	})
+
+	output := filepath.Join(root, "dist")
+	if _, err := Run(root, output); err != nil {
+		t.Fatal(err)
+	}
+
+	index := read(t, filepath.Join(output, "index.html"))
+	if !strings.Contains(index, `<a href="billing.html">billing</a>`) || !strings.Contains(index, `href="billing.html#src-billing-b-md"`) {
+		t.Errorf("index.html missing chapter links:\n%s", index)
+	}
+
+	chapter := read(t, filepath.Join(output, "billing.html"))
+	for _, want := range []string{`aria-current="page"`, `<p class="source">billing/a.md</p>`, `href="#src-billing-b-md"`} {
+		if !strings.Contains(chapter, want) {
+			t.Errorf("billing.html missing %q:\n%s", want, chapter)
+		}
+	}
+}

@@ -47,3 +47,21 @@ img {
     gap: 1rem;
   }
 }
+
+nav h2 {
+  margin: 1rem 0 .25rem;
+  font-size: .9rem;
+  text-transform: uppercase;
+  opacity: .75;
+}
+
+nav a[aria-current] {
+  font-weight: 700;
+}
+
+.source {
+  margin: 0 0 1rem;
+  font-family: ui-monospace, monospace;
+  font-size: .85rem;
+  opacity: .7;
+}
