@@ -219,21 +219,118 @@ func TestRunRejectsSymlinkOverlap(t *testing.T) {
 	}
 }
 
-func TestRunRejectsUnavailableModes(t *testing.T) {
-	for _, mode := range []string{"module", "single"} {
-		root, source, output := project(t)
-		if err := os.WriteFile(filepath.Join(root, "DOCS.md"), []byte("## Folders\n- docs\n\n## Assemble\n"+mode+"\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+func TestRunAssemblesModules(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{
+		"DOCS.md":          "## Folders\n- billing\n- orders\n\n## Assemble\nmodule\n",
+		"billing/api.md":   "# Billing API\n\nSee [orders](../orders/flow.md#steps).",
+		"billing/notes.md": "# Notes\n\nBack to [API](api.md) or [outside](../README.md).",
+		"orders/flow.md":   "# Flow\n\n## Steps\n",
+		"README.md":        "# Not included",
+	})
 
-		if err := os.WriteFile(filepath.Join(source, "index.md"), []byte("# Hi"), 0o644); err != nil {
-			t.Fatal(err)
-		}
+	count, err := Run(root, filepath.Join(root, "dist"))
+	if err != nil {
+		t.Fatal(err)
+	}
 
-		if _, err := Run(root, output); err == nil || !strings.Contains(err.Error(), "not available yet") {
-			t.Errorf("mode %s: got %v", mode, err)
+	if count != 3 {
+		t.Fatalf("got %d pages, want 3", count)
+	}
+
+	billing := read(t, filepath.Join(root, "dist", "billing.html"))
+	for _, want := range []string{
+		`<section id="src-billing-api-md">`,
+		`<section id="src-billing-notes-md">`,
+		`href="orders.html#src-orders-flow-md-steps"`,
+		`href="#src-billing-api-md"`,
+		`href="../README.md"`,
+	} {
+		if !strings.Contains(billing, want) {
+			t.Errorf("billing.html missing %q:\n%s", want, billing)
 		}
 	}
+
+	orders := read(t, filepath.Join(root, "dist", "orders.html"))
+	if !strings.Contains(orders, `id="src-orders-flow-md-steps"`) {
+		t.Errorf("orders.html missing heading id:\n%s", orders)
+	}
+}
+
+func TestRunAssemblesSingleDocument(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{
+		"DOCS.md":        "## Folders\n- billing\n- orders\n\n## Assemble\nsingle\n",
+		"billing/api.md": "# API\n\n## Intro\n\nSee [flow](../orders/flow.md).",
+		"orders/flow.md": "# Flow\n\n## Intro\n\n[API intro](../billing/api.md#intro)",
+	})
+
+	if _, err := Run(root, filepath.Join(root, "dist")); err != nil {
+		t.Fatal(err)
+	}
+
+	index := read(t, filepath.Join(root, "dist", "index.html"))
+	for _, want := range []string{
+		`href="#src-orders-flow-md"`,
+		`href="#src-billing-api-md-intro"`,
+		`id="src-billing-api-md-intro"`,
+		`id="src-orders-flow-md-intro"`,
+	} {
+		if !strings.Contains(index, want) {
+			t.Errorf("index.html missing %q:\n%s", want, index)
+		}
+	}
+
+	if strings.Index(index, "src-billing-api-md\"") > strings.Index(index, "src-orders-flow-md\"") {
+		t.Error("folders out of order")
+	}
+}
+
+func TestRunPageModeRewritesLinksBetweenIncludedFiles(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, map[string]string{
+		"DOCS.md":        "## Folders\n- billing\n- orders\n",
+		"billing/api.md": "# API\n\n[flow](../orders/flow.md#steps) [out](../README.md) [web](https://x.dev/a.md)",
+		"orders/flow.md": "# Flow",
+		"README.md":      "# Out",
+	})
+
+	if _, err := Run(root, filepath.Join(root, "dist")); err != nil {
+		t.Fatal(err)
+	}
+
+	api := read(t, filepath.Join(root, "dist", "billing", "api.html"))
+	for _, want := range []string{`href="../orders/flow.html#steps"`, `href="../README.md"`, `href="https://x.dev/a.md"`} {
+		if !strings.Contains(api, want) {
+			t.Errorf("api.html missing %q:\n%s", want, api)
+		}
+	}
+}
+
+func write(t *testing.T, root string, files map[string]string) {
+	t.Helper()
+
+	for name, text := range files {
+		full := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := os.WriteFile(full, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func read(t *testing.T, path string) string {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return string(content)
 }
 
 func TestRunWithoutConfigReadsOnlyRootFiles(t *testing.T) {

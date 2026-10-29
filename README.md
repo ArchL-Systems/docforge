@@ -94,9 +94,11 @@ go run ./cmd/docforge build --output dist
 ```
 
 O comando roda na raiz do projeto e lê o `DOCS.md` dela: `## Folders` lista as
-pastas (na ordem da documentação) e `## Assemble` o modo de montagem. Hoje só
-o modo `page` está disponível; `module` e `single` respondem que ainda não
-existem. Sem `DOCS.md`, são lidos apenas os `.md` diretos da raiz.
+pastas (na ordem da documentação) e `## Assemble` o modo de montagem: `page`
+(um HTML por arquivo, o padrão), `module` (um capítulo `<pasta>.html` por pasta
+da config) ou `single` (um único `index.html`). Nos modos `module` e `single`,
+links entre `.md` incluídos apontam para a seção do arquivo juntado. Sem
+`DOCS.md`, são lidos apenas os `.md` diretos da raiz.
 
 Abra `dist/docs/index.html` no navegador para ver a documentação de exemplo.
 Os arquivos `.md` das pastas listadas (e subpastas) viram `.html`, preservando

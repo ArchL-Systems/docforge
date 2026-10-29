@@ -43,10 +43,6 @@ func Run(root, output string) (int, error) {
 		return 0, err
 	}
 
-	if cfg.Mode != config.ModePage {
-		return 0, fmt.Errorf("assemble mode %q is not available yet", cfg.Mode)
-	}
-
 	for _, folder := range cfg.Folders {
 		folderPath := filepath.Join(root, filepath.FromSlash(folder))
 		// A flat root reads only its direct files, so an output inside
@@ -86,7 +82,7 @@ func Run(root, output string) (int, error) {
 		return 0, fmt.Errorf("copy assets: %w", err)
 	}
 
-	if err := render.Site(output, pages); err != nil {
+	if err := render.Assemble(output, pages, cfg.Mode); err != nil {
 		return 0, fmt.Errorf("render site: %w", err)
 	}
 
@@ -156,6 +152,8 @@ func readPages(root string, files []collect.File) ([]render.Page, error) {
 			Title:    name,
 			Path:     filepath.FromSlash(name) + ".html",
 			Markdown: content,
+			Source:   file.Source,
+			Module:   file.Folder,
 		})
 	}
 
